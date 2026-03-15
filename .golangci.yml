@@ -1,0 +1,28 @@
+version: "2"
+linters:
+  enable:
+    - loglinter
+  settings:
+    custom:
+      loglinter:
+        path: ./loglinter
+        description: My log linter
+        original-url: github.com/твой_username/loglinter
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
