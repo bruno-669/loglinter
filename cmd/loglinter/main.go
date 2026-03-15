@@ -6,6 +6,5 @@ import (
 )
 
 func main() {
-	// singlechecker запускает один анализатор как отдельную команду.
 	singlechecker.Main(analyzer.Analyzer)
 }

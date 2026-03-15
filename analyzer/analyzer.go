@@ -37,46 +37,38 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return nil, nil
 }
 
-// checkCall проверяет один вызов функции.
 func checkCall(pass *analysis.Pass, call *ast.CallExpr) {
-	// Получаем объект функции (что именно вызывается)
+
 	msgIndex, ok := isLogFunction(pass, call)
 	if !ok {
-		return // не лог-функция
+		return
 	}
 
-	// Проверяем, что аргумент с сообщением существует
 	if msgIndex >= len(call.Args) {
 		return
 	}
 
-	// Проверяем, что аргумент — строковой литерал
 	arg := call.Args[msgIndex]
 	lit, ok := arg.(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {
-		// Не литерал — пропускаем (можно сообщить, но усложнять не будем)
+
 		return
 	}
 
-	// Удаляем кавычки
 	msg := strings.Trim(lit.Value, `"`)
 
-	// Применяем все правила
 	checkFirstLower(pass, arg.Pos(), msg, lit)
 	checkOnlyEnglish(pass, arg.Pos(), msg)
 	checkNoSpecialChars(pass, arg.Pos(), msg)
 	checkNoSensitive(pass, arg.Pos(), msg)
 }
 
-// isLogFunction определяет, является ли вызов функцией логирования,
-// и возвращает индекс аргумента, содержащего сообщение (обычно 0).
 func isLogFunction(pass *analysis.Pass, call *ast.CallExpr) (int, bool) {
-	// Получаем объект функции через TypesInfo
+
 	var fn *types.Func
 	switch fun := call.Fun.(type) {
 	case *ast.Ident:
-		// Прямой вызов функции, например slog.Info (но в AST это будет SelectorExpr, если пакет указан)
-		// Для простоты будем обрабатывать только SelectorExpr, но можно и Ident, если функция импортирована как .
+
 		obj := pass.TypesInfo.ObjectOf(fun)
 		if obj == nil {
 			return 0, false
@@ -87,7 +79,7 @@ func isLogFunction(pass *analysis.Pass, call *ast.CallExpr) (int, bool) {
 			return 0, false
 		}
 	case *ast.SelectorExpr:
-		// Вызов вида pkg.Func или obj.Method
+
 		obj := pass.TypesInfo.ObjectOf(fun.Sel)
 		if obj == nil {
 			return 0, false
@@ -101,17 +93,14 @@ func isLogFunction(pass *analysis.Pass, call *ast.CallExpr) (int, bool) {
 		return 0, false
 	}
 
-	// Проверяем принадлежность к нужным пакетам
 	pkg := fn.Pkg()
 	if pkg == nil {
 		return 0, false
 	}
 	pkgPath := pkg.Path()
 
-	// Имя функции (метода)
 	funcName := fn.Name()
 
-	// Список допустимых имён функций логирования
 	logFuncs := map[string]bool{
 		"Info":  true,
 		"Error": true,
@@ -122,25 +111,18 @@ func isLogFunction(pass *analysis.Pass, call *ast.CallExpr) (int, bool) {
 		return 0, false
 	}
 
-	// Проверяем пакет
 	switch pkgPath {
 	case "log/slog":
-		// Для slog сообщение всегда первый аргумент
+
 		return 0, true
 	case "go.uber.org/zap":
-		// Для zap есть несколько вариантов:
-		// - методы *zap.Logger: Info(msg string, fields ...Field)
-		// - методы *zap.SugaredLogger: Info(msg string, args ...interface{})
-		// В обоих случаях сообщение — первый аргумент.
-		// Также есть пакетные функции (zap.Info), но они редкость.
-		// Упростим: считаем, что если функция из zap и имя подходит, то сообщение первый аргумент.
+
 		return 0, true
 	default:
 		return 0, false
 	}
 }
 
-// checkFirstLower проверяет, что сообщение начинается со строчной буквы.
 func checkFirstLower(pass *analysis.Pass, pos token.Pos, msg string, originalLit *ast.BasicLit) {
 	if msg == "" {
 		return
@@ -150,22 +132,18 @@ func checkFirstLower(pass *analysis.Pass, pos token.Pos, msg string, originalLit
 		return
 	}
 
-	// Формируем сообщение об ошибке
 	msgErr := "log message should start with a lowercase letter"
 
-	// Генерируем исправление: заменяем первый символ на строчный
 	newFirst := unicode.ToLower(first)
-	// Позиция первого символа внутри литерала:
-	// lit.Pos() - это позиция открывающей кавычки. Сама строка начинается с lit.Pos()+1.
-	startPos := originalLit.Pos() + 1 // позиция первого символа строки
-	// Заменяем только один символ
+
+	startPos := originalLit.Pos() + 1
+
 	edit := analysis.TextEdit{
 		Pos:     startPos,
-		End:     startPos + 1, // заменяем один символ
+		End:     startPos + 1,
 		NewText: []byte(string(newFirst)),
 	}
 
-	// Создаём диагностику с фиксом
 	pass.Report(analysis.Diagnostic{
 		Pos:     pos,
 		Message: msgErr,
@@ -178,7 +156,6 @@ func checkFirstLower(pass *analysis.Pass, pos token.Pos, msg string, originalLit
 	})
 }
 
-// checkOnlyEnglish проверяет, что сообщение содержит только латинские буквы, цифры и пробелы.
 func checkOnlyEnglish(pass *analysis.Pass, pos token.Pos, msg string) {
 	for _, r := range msg {
 		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == ' ') {
@@ -188,11 +165,9 @@ func checkOnlyEnglish(pass *analysis.Pass, pos token.Pos, msg string) {
 	}
 }
 
-// checkNoSpecialChars проверяет отсутствие спецсимволов и эмодзи (фактически дублирует предыдущее,
-// но оставим для явного выполнения требования).
 func checkNoSpecialChars(pass *analysis.Pass, pos token.Pos, msg string) {
 	for _, r := range msg {
-		// Разрешены буквы, цифры, пробел. Всё остальное — спецсимволы.
+
 		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == ' ') {
 			pass.Reportf(pos, "log message should not contain special characters or emojis")
 			return
