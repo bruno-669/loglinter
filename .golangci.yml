@@ -8,6 +8,8 @@ linters:
         path: ./loglinter
         description: My log linter
         original-url: github.com/твой_username/loglinter
+        flags:
+          - -sensitive-words=password,token,secret,api_key,auth,credential
   exclusions:
     generated: lax
     presets:

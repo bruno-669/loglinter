@@ -12,11 +12,17 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
+var sensitiveWords string
+
 var Analyzer = &analysis.Analyzer{
 	Name:     "loglinter",
 	Doc:      "checks log messages for style and security",
 	Run:      run,
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
+}
+
+func init() {
+	Analyzer.Flags.StringVar(&sensitiveWords, "sensitive-words", "password,token,secret,key,auth,credential", "comma-separated list of sensitive words to check in log messages")
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
@@ -56,7 +62,7 @@ func checkCall(pass *analysis.Pass, call *ast.CallExpr) {
 	msg := strings.Trim(lit.Value, `"`)
 
 	// Применяем все правила
-	checkFirstLower(pass, arg.Pos(), msg)
+	checkFirstLower(pass, arg.Pos(), msg, lit)
 	checkOnlyEnglish(pass, arg.Pos(), msg)
 	checkNoSpecialChars(pass, arg.Pos(), msg)
 	checkNoSensitive(pass, arg.Pos(), msg)
@@ -135,14 +141,41 @@ func isLogFunction(pass *analysis.Pass, call *ast.CallExpr) (int, bool) {
 }
 
 // checkFirstLower проверяет, что сообщение начинается со строчной буквы.
-func checkFirstLower(pass *analysis.Pass, pos token.Pos, msg string) {
+func checkFirstLower(pass *analysis.Pass, pos token.Pos, msg string, originalLit *ast.BasicLit) {
 	if msg == "" {
 		return
 	}
 	first := rune(msg[0])
-	if !unicode.IsLower(first) {
-		pass.Reportf(pos, "log message should start with a lowercase letter")
+	if unicode.IsLower(first) {
+		return
 	}
+
+	// Формируем сообщение об ошибке
+	msgErr := "log message should start with a lowercase letter"
+
+	// Генерируем исправление: заменяем первый символ на строчный
+	newFirst := unicode.ToLower(first)
+	// Позиция первого символа внутри литерала:
+	// lit.Pos() - это позиция открывающей кавычки. Сама строка начинается с lit.Pos()+1.
+	startPos := originalLit.Pos() + 1 // позиция первого символа строки
+	// Заменяем только один символ
+	edit := analysis.TextEdit{
+		Pos:     startPos,
+		End:     startPos + 1, // заменяем один символ
+		NewText: []byte(string(newFirst)),
+	}
+
+	// Создаём диагностику с фиксом
+	pass.Report(analysis.Diagnostic{
+		Pos:     pos,
+		Message: msgErr,
+		SuggestedFixes: []analysis.SuggestedFix{
+			{
+				Message:   "make first letter lowercase",
+				TextEdits: []analysis.TextEdit{edit},
+			},
+		},
+	})
 }
 
 // checkOnlyEnglish проверяет, что сообщение содержит только латинские буквы, цифры и пробелы.
@@ -167,20 +200,14 @@ func checkNoSpecialChars(pass *analysis.Pass, pos token.Pos, msg string) {
 	}
 }
 
-// checkNoSensitive проверяет наличие ключевых слов, указывающих на чувствительные данные.
 func checkNoSensitive(pass *analysis.Pass, pos token.Pos, msg string) {
-	// Список чувствительных подстрок (в нижнем регистре)
-	sensitive := []string{
-		"password", "passwd", "pwd",
-		"token",
-		"api_key", "apikey",
-		"secret",
-		"key",
-		"auth",
-		"credential",
-	}
+	words := strings.Split(sensitiveWords, ",")
 	lowerMsg := strings.ToLower(msg)
-	for _, kw := range sensitive {
+	for _, kw := range words {
+		kw = strings.TrimSpace(kw)
+		if kw == "" {
+			continue
+		}
 		if strings.Contains(lowerMsg, kw) {
 			pass.Reportf(pos, "log message should not contain sensitive data (found %q)", kw)
 			return

@@ -1,0 +1,9 @@
+package fix
+
+import (
+	"log/slog"
+)
+
+func main() {
+	slog.Info("server started")
+}

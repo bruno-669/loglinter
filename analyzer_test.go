@@ -10,3 +10,7 @@ import (
 func TestAnalyzer(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), analyzer.Analyzer, "./src")
 }
+
+func TestFix(t *testing.T) {
+	analysistest.RunWithSuggestedFixes(t, analysistest.TestData(), analyzer.Analyzer, "./fix")
+}
