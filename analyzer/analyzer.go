@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -58,8 +59,7 @@ func checkCall(pass *analysis.Pass, call *ast.CallExpr) {
 	msg := strings.Trim(lit.Value, `"`)
 
 	checkFirstLower(pass, arg.Pos(), msg, lit)
-	checkOnlyEnglish(pass, arg.Pos(), msg)
-	checkNoSpecialChars(pass, arg.Pos(), msg)
+	checkValidCharacters(pass, arg.Pos(), msg)
 	checkNoSensitive(pass, arg.Pos(), msg)
 }
 
@@ -127,7 +127,7 @@ func checkFirstLower(pass *analysis.Pass, pos token.Pos, msg string, originalLit
 	if msg == "" {
 		return
 	}
-	first := rune(msg[0])
+	first, _ := utf8.DecodeRuneInString(msg)
 	if unicode.IsLower(first) {
 		return
 	}
@@ -156,25 +156,6 @@ func checkFirstLower(pass *analysis.Pass, pos token.Pos, msg string, originalLit
 	})
 }
 
-func checkOnlyEnglish(pass *analysis.Pass, pos token.Pos, msg string) {
-	for _, r := range msg {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == ' ') {
-			pass.Reportf(pos, "log message should contain only English letters, digits and spaces")
-			return
-		}
-	}
-}
-
-func checkNoSpecialChars(pass *analysis.Pass, pos token.Pos, msg string) {
-	for _, r := range msg {
-
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == ' ') {
-			pass.Reportf(pos, "log message should not contain special characters or emojis")
-			return
-		}
-	}
-}
-
 func checkNoSensitive(pass *analysis.Pass, pos token.Pos, msg string) {
 	words := strings.Split(sensitiveWords, ",")
 	lowerMsg := strings.ToLower(msg)
@@ -184,7 +165,16 @@ func checkNoSensitive(pass *analysis.Pass, pos token.Pos, msg string) {
 			continue
 		}
 		if strings.Contains(lowerMsg, kw) {
-			pass.Reportf(pos, "log message should not contain sensitive data (found %q)", kw)
+			pass.Reportf(pos, "log message should not contain sensitive data: %s", kw)
+			return
+		}
+	}
+}
+
+func checkValidCharacters(pass *analysis.Pass, pos token.Pos, msg string) {
+	for _, r := range msg {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == ' ') {
+			pass.Reportf(pos, "log message should contain only English letters, digits and spaces")
 			return
 		}
 	}
